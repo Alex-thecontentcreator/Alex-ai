@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Alex AI</title>
+<link rel="icon" href="/logo.svg"><link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1d6fe0">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Alex AI">
+<style>
+:root{--bg:#f4f7fc;--card:#fff;--ink:#14213a;--mute:#66728a;--acc:#1d6fe0;--me:#1d6fe0;--line:#d5deee;--code:#0f1a2e}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#171e2e;--ink:#e8edf8;--mute:#93a0ba;--acc:#4a9bff;--me:#2b6cc4;--line:#29344c}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+header img{width:34px;height:34px;border-radius:9px}header b{font-size:17px}header small{display:block;color:var(--mute);font-size:12px}
+header button{margin-left:auto}
+#log{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px;max-width:780px;width:100%;margin:0 auto;-webkit-overflow-scrolling:touch}
+.m{padding:10px 14px;border-radius:18px;max-width:90%;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line)}
+.me{align-self:flex-end;background:var(--me);color:#fff;border-color:transparent;border-bottom-right-radius:6px}
+.ai{align-self:flex-start;border-bottom-left-radius:6px}.err{color:#d93025}
+.m code{background:#8882;border-radius:5px;padding:1px 5px;font:14px ui-monospace,monospace}
+pre{position:relative;background:var(--code);color:#e6edf7;border-radius:12px;padding:12px;margin:8px 0;overflow-x:auto;white-space:pre}
+pre code{background:none;padding:0;color:inherit}
+pre button{position:absolute;top:6px;right:6px;font-size:12px;padding:3px 9px}
+.dots span{display:inline-block;width:7px;height:7px;margin:0 2px;border-radius:50%;background:var(--mute);animation:b 1s infinite}
+.dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,60%,100%{opacity:.3}30%{opacity:1}}
+.hint{margin:auto;text-align:center;color:var(--mute);padding:0 12px}.hint img{width:76px;border-radius:20px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:14px}
+.bar{display:flex;align-items:flex-end;gap:8px;padding:10px 14px 12px;max-width:780px;width:100%;margin:0 auto}
+textarea{flex:1;font:16px system-ui;padding:11px 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--ink);resize:none;max-height:150px;outline:none}
+button{font:14px system-ui;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 14px;cursor:pointer}
+#go{background:var(--acc);color:#fff;border:0;width:44px;height:44px;padding:0;font-size:20px}
+#go:disabled{opacity:.5}
+</style></head><body>
+<header><img src="/logo.svg" alt="Alex AI logo"><div><b>Alex AI</b><small>Your personal AI assistant</small></div><button id="clr">New chat</button></header>
+<div id="log"></div>
+<div class="bar"><textarea id="in" rows="1" placeholder="Message Alex…"></textarea><button id="go" aria-label="Send">↑</button></div>
+<script>
+const log=document.getElementById("log"),inp=document.getElementById("in"),btn=document.getElementById("go");
+let hist=[],busy=false,code="";
+try{code=localStorage.getItem("alexcode")||""}catch(e){}
+if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
+
+function hint(){
+  log.innerHTML='<div class="hint"><img src="/logo.svg" alt=""><p><b>Hi, I\'m Alex.</b><br>Ask me anything.</p><div class="chips"></div></div>';
+  ["Plan my day","Explain something simply","Help me write code"].forEach(t=>{
+    const b=document.createElement("button");b.textContent=t;b.onclick=()=>{inp.value=t;send()};
+    log.querySelector(".chips").appendChild(b)});
+}
+function inline(el,text){
+  text.split(/(\*\*[^*]+\*\*|`[^`]+`)/).forEach(p=>{
+    if(!p)return;let n;
+    if(p.startsWith("**")&&p.endsWith("**")&&p.length>4){n=document.createElement("b");n.textContent=p.slice(2,-2)}
+    else if(p.startsWith("`")&&p.endsWith("`")&&p.length>2){n=document.createElement("code");n.textContent=p.slice(1,-1)}
+    else n=document.createTextNode(p);
+    el.appendChild(n)});
+}
+function render(el,text){
+  el.textContent="";
+  text.split("```").forEach((part,i)=>{
+    if(i%2===0){inline(el,part.replace(/^\n+|\n+$/g,""));return}
+    const pre=document.createElement("pre"),code=document.createElement("code");
+    code.textContent=part.replace(/^[^\n]*\n/,"").replace(/\n$/,"");
+    const cb=document.createElement("button");cb.textContent="Copy";
+    cb.onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(code.textContent);cb.textContent="Copied";setTimeout(()=>cb.textContent="Copy",1200)};
+    pre.append(code,cb);el.appendChild(pre)});
+}
+function add(t,cls){
+  const h=log.querySelector(".hint");if(h)h.remove();
+  const d=document.createElement("div");d.className="m "+cls;
+  if(t)d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;return d}
+async function send(){
+  const t=inp.value.trim();if(!t||busy)return;
+  busy=true;btn.disabled=true;inp.value="";inp.style.height="auto";
+  hist.push({role:"user",content:t});add(t,"me");
+  const out=add("","ai");out.innerHTML='<span class="dots"><span></span><span></span><span></span></span>';
+  try{
+    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json","x-access-code":code},body:JSON.stringify({messages:hist})});
+    const d=await r.json();
+    if(r.status===401){code=prompt("Enter your access code")||"";try{localStorage.setItem("alexcode",code)}catch(e){}throw new Error("Code saved. Send your message again.")}
+    if(!r.ok)throw new Error(d.error||"Error");
+    render(out,d.reply);hist.push({role:"assistant",content:d.reply});
+  }catch(e){out.textContent=e.message;out.classList.add("err");hist.pop()}
+  busy=false;btn.disabled=false;log.scrollTop=log.scrollHeight;
+}
+btn.onclick=send;
+inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=inp.scrollHeight+"px"});
+inp.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!/Mobi|Android/i.test(navigator.userAgent)){e.preventDefault();send()}});
+document.getElementById("clr").onclick=()=>{hist=[];hint()};
+hint();
+</script></body></html>
