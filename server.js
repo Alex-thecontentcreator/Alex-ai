@@ -6,100 +6,103 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const {
-  API_KEY,
-  BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai",
-  MODEL = "gemini-1.5-flash",
-  API_STYLE = "chat",
-  PORT = 3000,
-  ACCESS_CODE,
-  ENABLE_SEARCH,
-} = process.env;
-
-if (!API_KEY) {
-  console.error("Missing API_KEY environment variable.");
-  process.exit(1);
-}
-
-if (!ACCESS_CODE) {
-  console.warn("WARNING: ACCESS_CODE is not set. Anyone with your link can use your API key.");
-}
-
-const SYSTEM = fs.readFileSync(new URL("./system-prompt.md", import.meta.url), "utf8");
 const app = express();
-
 app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Keep-alive health check
-app.get("/healthz", (req, res) => {
-  res.status(200).send("OK");
-});
+// Load system prompt safely
+let SYSTEM = "You are Alex AI, a helpful AI assistant.";
+try {
+  SYSTEM = fs.readFileSync(path.join(__dirname, "system-prompt.md"), "utf8");
+} catch (err) {
+  console.warn("system-prompt.md not found, falling back to default prompt.");
+}
 
-// Explicit routes for admin and rooms pages
-app.get("/admin.html", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "admin.html"));
-});
-
-app.get("/rooms.html", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "rooms.html"));
-});
-
-// Chat endpoint
 app.post("/api/chat", async (req, res) => {
-  if (ACCESS_CODE && req.get("x-access-code") !== ACCESS_CODE) {
-    return res.status(401).json({ error: "Wrong or missing access code" });
-  }
-
-  const msgs = Array.isArray(req.body?.messages) ? req.body.messages.slice(-30) : [];
-  const input = msgs
-    .filter((m) => ["user", "assistant"].includes(m?.role) && typeof m.content === "string")
-    .map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }));
-
-  if (!input.length) return res.status(400).json({ error: "No messages" });
-
-  const useResponses = API_STYLE === "responses";
-  let url, body;
-
-  if (useResponses) {
-    url = `${BASE_URL}/responses`;
-    body = { model: MODEL, instructions: SYSTEM, input };
-    if (ENABLE_SEARCH === "true") body.tools = [{ type: "web_search" }];
-  } else {
-    url = `${BASE_URL}/chat/completions`;
-    body = { model: MODEL, messages: [{ role: "system", content: SYSTEM }, ...input] };
-  }
-
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data = await r.json();
-
-    if (!r.ok) {
-      const msg = data?.error?.message || data?.[0]?.error?.message || "Provider error";
-      return res.status(r.status === 429 ? 429 : 502).json({ error: msg });
+    const { messages, message } = req.body || {};
+    
+    // Standardize input string
+    let userPrompt = "";
+    if (Array.isArray(messages) && messages.length > 0) {
+      const last = messages[messages.length - 1];
+      userPrompt = last.content || last.text || "";
+    } else if (typeof message === "string") {
+      userPrompt = message;
     }
 
-    const reply = useResponses
-      ? (data.output || [])
-          .filter((o) => o.type === "message")
-          .flatMap((o) => o.content || [])
-          .filter((c) => c.type === "output_text")
-          .map((c) => c.text)
-          .join("")
-      : data.choices?.[0]?.message?.content ?? "";
+    if (!userPrompt.trim()) {
+      return res.status(400).json({ error: "Message content cannot be empty." });
+    }
 
-    res.json({ reply: reply || "(No reply)" });
-  } catch (e) {
-    res.status(500).json({ error: `Request failed: ${e.message}` });
+    const provider = (process.env.PROVIDER || "gemini").toLowerCase();
+    let replyText = "";
+
+    // --- OPTION A: GOOGLE GEMINI ---
+    if (provider === "gemini") {
+      const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+      const model = process.env.MODEL || "gemini-2.5-flash";
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: `${SYSTEM}\n\nUser: ${userPrompt}` }],
+            },
+          ],
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error?.message || "Gemini API request failed.");
+      }
+
+      replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    } 
+    
+    // --- OPTION B: ANTHROPIC CLAUDE ---
+    else if (provider === "claude" || provider === "anthropic") {
+      const apiKey = process.env.ANTHROPIC_API_KEY || process.env.API_KEY;
+      const model = process.env.MODEL || "claude-3-5-sonnet-20241022";
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: 1024,
+          system: SYSTEM,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error?.message || "Claude API request failed.");
+      }
+
+      replyText = data.content?.[0]?.text;
+    }
+
+    // Fallback safeguard against 'undefined'
+    if (!replyText) {
+      replyText = "I received your message, but no output text was generated.";
+    }
+
+    res.json({ reply: replyText });
+  } catch (err) {
+    console.error("Chat handler error:", err);
+    res.status(500).json({ error: err.message || "Internal server error" });
   }
 });
 
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Alex AI running on port ${PORT}`));
