@@ -1,61 +1,65 @@
+import express from "express";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+
+let SYSTEM = "You are Alex AI, a helpful assistant.";
+try {
+  SYSTEM = fs.readFileSync(path.join(__dirname, "system-prompt.md"), "utf8");
+} catch (err) {
+  console.warn("system-prompt.md not found, using default assistant persona.");
+}
+
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, messages } = req.body || {};
+    const { message } = req.body;
 
-    // 1. Extract prompt safely from either format
-    let userPrompt = "";
-    if (typeof message === "string" && message.trim()) {
-      userPrompt = message.trim();
-    } else if (Array.isArray(messages) && messages.length > 0) {
-      const last = messages[messages.length - 1];
-      userPrompt = last.content || last.text || "";
+    if (!message) {
+      return res.status(400).json({ error: "No message provided" });
     }
 
-    if (!userPrompt) {
-      return res.status(400).json({ error: "No message text provided." });
-    }
+    const apiKey = process.env.API_KEY;
+    const model = process.env.MODEL || "gemini-3.8-flash";
 
-    // 2. Read Gemini credentials from environment
-    const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
-    const model = process.env.MODEL || "gemini-2.5-flash";
-
-    if (!apiKey) {
-      return res.status(500).json({ error: "Missing API_KEY in server environment." });
-    }
-
-    // 3. Call Google Gemini API
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const apiResponse = await fetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [
           {
             role: "user",
-            parts: [{ text: `${SYSTEM}\n\nUser: ${userPrompt}` }],
+            parts: [{ text: `${SYSTEM}\n\nUser: ${message}` }],
           },
         ],
       }),
     });
 
-    const data = await apiResponse.json();
+    const data = await response.json();
 
-    if (!apiResponse.ok) {
+    if (!response.ok) {
       console.error("Gemini API Error:", data);
-      const errorMsg = data?.error?.message || "Gemini API call failed";
-      return res.status(apiResponse.status).json({ error: errorMsg });
+      return res.status(response.status).json({
+        error: data?.error?.message || "Error calling Gemini API",
+      });
     }
 
-    // 4. Extract reply text cleanly
-    const replyText =
-      data.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No text generated from model.";
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No reply generated.";
 
-    // Sends back { reply: "..." } matching your frontend's data.reply
-    res.json({ reply: replyText });
+    res.json({ reply });
   } catch (err) {
     console.error("Server Error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: err.message });
   }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Alex AI server running on port ${PORT}`));
