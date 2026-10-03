@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Alex AI - Rooms</title>
+</head>
+<body>
+  <h2>Group Rooms</h2>
+  <button onclick="createRoom()">Create Group Room</button>
+  <div id="room-link"></div>
+
+  <script>
+    function createRoom() {
+      const roomId = Math.random().toString(36).substring(7);
+      const link = window.location.origin + '/rooms.html?room=' + roomId;
+      document.getElementById('room-link').innerHTML = `Room Created! Invite Link: <a href="${link}">${link}</a>`;
+    }
+  </script>
+</body>
+</html>
