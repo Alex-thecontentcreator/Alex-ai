@@ -1,47 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alex AI</title>
-  <link rel="manifest" href="/manifest.json">
-  <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-    #chat-box { height: 300px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
-    input[type="text"] { width: 75%; padding: 8px; }
-    button { padding: 8px 12px; }
-  </style>
-</head>
-<body>
-  <h2>Alex AI</h2>
-  <div id="auth-status">Guest</div>
-  <div id="chat-box"></div>
-  <input type="text" id="user-input" placeholder="Type a message...">
-  <button onclick="sendMessage()">Send</button>
+const response = await fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: userInput })
+});
 
-  <script>
-    async function sendMessage() {
-      const input = document.getElementById('user-input');
-      const chatBox = document.getElementById('chat-box');
-      if (!input.value) return;
-
-      const userMsg = input.value;
-      chatBox.innerHTML += `<div><b>You:</b> ${userMsg}</div>`;
-      input.value = '';
-
-      try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: userMsg })
-        });
-        const data = await res.json();
-        chatBox.innerHTML += `<div><b>Alex:</b> ${data.reply}</div>`;
-        chatBox.scrollTop = chatBox.scrollHeight;
-      } catch (err) {
-        chatBox.innerHTML += `<div style="color:red;">Error sending message</div>`;
-      }
-    }
-  </script>
-</body>
-</html>
+const data = await response.json();
+const botText = data.reply || data.error || "No response received";
