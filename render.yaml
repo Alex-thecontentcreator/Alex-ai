@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: alex-ai
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: API_KEY
+        sync: false
+      - key: ACCESS_CODE
+        sync: false
+      - key: BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai
+      - key: MODEL
+        value: gemini-3.8-flash
+      - key: API_STYLE
+        value: chat
